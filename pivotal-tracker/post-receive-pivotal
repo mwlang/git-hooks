@@ -1,0 +1,106 @@
+#!/usr/bin/env bash
+# post-receive
+
+# Get config variables
+api_token=$(git config --get hooks.pivotal-tracker.api-token)
+pid=$(git config --get hooks.pivotal-tracker.project-id)
+branch=$(git config --get hooks.pivotal-tracker.integration-branch)
+
+mark_accepted () {
+    curl --silent -X PUT -H "X-TrackerToken: $api_token" -H "Content-Type: application/json" -d '{"current_state": "accepted"}' "https://www.pivotaltracker.com/services/v5/projects/$pid/stories/$1" > /dev/null
+}
+
+mark_delivered () {
+    curl --silent -X PUT -H "X-TrackerToken: $api_token" -H "Content-Type: application/json" -d '{"current_state": "delivered"}' "https://www.pivotaltracker.com/services/v5/projects/$pid/stories/$1" > /dev/null
+}
+
+post_comment () {
+    curl --silent -X POST -H "X-TrackerToken: $api_token" -H "Content-Type: application/json" -d "{\"text\":\"$2\"}" "https://www.pivotaltracker.com/services/v5/projects/$pid/stories/$1/comments" > /dev/null
+
+}
+
+parse_msg () {
+    # $1: if we are on integration branch
+    # $2: commit message
+
+    #Find the keywords in the message
+    commit_msg=${2:41}
+
+    if [[ $commit_msg == *"resolves"* ]] || [[ $commit_msg == *"implements"* ]] || [[ $commit_msg == *"fixes"* ]]; then
+        keyword=true
+    else
+        keyword=false
+    fi
+
+    local IFS=$'\n'
+
+    # Isolate the ticket IDs
+    ticket_ids=( $(grep -oP "[\[\s|,]#(\d*)[\],]" <<< $commit_msg) )
+    for i in ${!ticket_ids[@]}; do
+        ticket_ids[$i]=$(sed 's/^..\(.*\).$/\1/' <<< ${ticket_ids[$i]})
+    done
+
+    unset IFS
+    
+    if $1 && $keyword; then
+        # In integration branch, has keyword, mark tickets as "ACCEPTED"
+        for id in ${ticket_ids[@]}; do
+            mark_accepted $id
+            post_comment $id "$commit_msg"
+        done
+
+    elif $keyword; then
+        # Other branch, has keywords, mark tickets as "DELIVERED"
+        # If not, do nothing
+        for id in ${ticket_ids[@]}; do
+            mark_delivered $id
+            post_comment $id "$commit_msg"
+        done
+
+    else
+        for id in ${ticket_ids[@]}; do
+            post_comment $id "$commit_msg"
+        done
+    fi
+}
+
+while read old_val new_val ref; do
+    if expr "$ref" : "^refs/heads/"; then
+        # Find the branch of the commit
+        ref_branch=$(git rev-parse --symbolic --abbrev-ref $ref)
+
+        # If we pushed te integration branch
+        if [[ $ref_branch == $branch ]]; then
+            integration=true
+        else
+            integration=false
+        fi
+
+        # If the branch is new
+        if expr "$old_val" : '0*$' > /dev/null; then
+            new_branch=true
+        else
+            new_branch=false
+        fi
+    
+
+        IFS=$'\n'
+
+        if $new_branch; then
+            # If integration branch is created from scratch, mark ALL commits
+            if $integration; then
+                commit_msgs=( $(git log --pretty=oneline $new_val) )
+            fi
+
+            # !!!! New branch must be pushed immediately after creation !!!!
+        else
+            commit_msgs=( $(git log --pretty=oneline "$old_val..$new_val") )
+        fi
+
+        for msg in "${commit_msgs[@]}"; do
+            parse_msg $integration $msg
+        done
+
+        unset IFS
+    fi
+done
