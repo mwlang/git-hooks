@@ -58,6 +58,6 @@ You should see something like this:
  
 ## CREDITS
 
-slack post-receive:           https://github.com/chriseldredge/git-slack-hook
-pivotal-tracker post-receive: https://gist.github.com/Bokenator/42aeb02e0aefe55d5a9a
-hook-chain:                   http://stackoverflow.com/questions/8730514/chaining-git-hooks
+* slack post-receive:           https://github.com/chriseldredge/git-slack-hook
+* pivotal-tracker post-receive: https://gist.github.com/Bokenator/42aeb02e0aefe55d5a9a
+* hook-chain:                   http://stackoverflow.com/questions/8730514/chaining-git-hooks
